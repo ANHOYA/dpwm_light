@@ -47,6 +47,19 @@ print(torch.cuda.is_available())
 PY
 ```
 
+GPU compatibility note:
+
+```text
+This lightweight environment intentionally uses the old robodiff-compatible
+PyTorch 1.12.1 + CUDA 11.6 stack. It works with RTX 3080 / sm_86 class GPUs,
+but it does not support newer RTX 50-series GPUs such as RTX 5070 Ti / sm_120.
+
+이 환경은 기존 robodiff 호환성을 위해 PyTorch 1.12.1 + CUDA 11.6을 사용합니다.
+RTX 3080 / sm_86 계열에서는 학습 가능하지만, RTX 5070 Ti / sm_120 같은
+신형 GPU에서는 CUDA kernel을 실행할 수 없습니다. 그런 경우 remote 3080 장비에서
+학습하거나, 별도의 최신 PyTorch 환경을 만들어야 합니다.
+```
+
 ## Teleoperation
 
 EEF orientation is locked downward by default. This preserves the custom setting used during Can teleoperation. Use `--free-rotation` only when you intentionally want free rotation.
@@ -134,6 +147,19 @@ python train_can_image.py \
   --batch-size 2 \
   --num-workers 0 \
   --device cuda:0
+```
+
+CPU-only smoke test for checking the code path on unsupported local GPUs:
+
+```bash
+python train_can_image.py \
+  --dataset data/robomimic/datasets/can/custom/image.hdf5 \
+  --output data/outputs/can_image_light_debug_cpu \
+  --num-epochs 1 \
+  --max-train-steps 1 \
+  --batch-size 1 \
+  --num-workers 0 \
+  --device cpu
 ```
 
 ## Evaluate

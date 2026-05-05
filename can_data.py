@@ -4,13 +4,12 @@ from pathlib import Path
 
 import h5py
 import numpy as np
-import torch
-from torch.utils.data import Dataset
 from tqdm import tqdm
 
 
 LOWDIM_KEYS = ('robot0_eef_pos', 'robot0_eef_quat', 'robot0_gripper_qpos')
 CAMERA_KEYS = ('agentview_image', 'robot0_eye_in_hand_image')
+DEFAULT_CAMERA_NAMES = ('agentview', 'robot0_eye_in_hand')
 
 
 def create_sample_indices(episode_ends, sequence_length, pad_before=0, pad_after=0):
@@ -90,7 +89,7 @@ def load_can_hdf5(dataset_path, camera_keys=CAMERA_KEYS, lowdim_keys=LOWDIM_KEYS
     return data, np.asarray(episode_ends, dtype=np.int64)
 
 
-class CanImageDataset(Dataset):
+class CanImageDataset:
     def __init__(self, dataset_path, pred_horizon=16, obs_horizon=2, action_horizon=8,
                  camera_keys=CAMERA_KEYS):
         self.camera_keys = tuple(camera_keys)
@@ -118,6 +117,8 @@ class CanImageDataset(Dataset):
         return len(self.indices)
 
     def __getitem__(self, idx):
+        import torch
+
         buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx = self.indices[idx]
         nsample = sample_sequence(
             self.data,
@@ -144,7 +145,7 @@ def load_raw_metadata(raw_demo):
     return env_meta['env_name'], env_meta['env_kwargs']
 
 
-def prepare_image_dataset(raw_demo, output_path, camera_names=CAMERA_KEYS, camera_height=84, camera_width=84):
+def prepare_image_dataset(raw_demo, output_path, camera_names=DEFAULT_CAMERA_NAMES, camera_height=84, camera_width=84):
     import robosuite as suite
     from robomimic.envs.env_base import EnvType
     from robosuite.utils.mjcf_utils import postprocess_model_xml
@@ -235,7 +236,7 @@ def main():
     p = sub.add_parser('prepare-image')
     p.add_argument('--raw-demo', default='data/robomimic/datasets/can/custom/demo.hdf5')
     p.add_argument('--output', default='data/robomimic/datasets/can/custom/image.hdf5')
-    p.add_argument('--camera-names', nargs='+', default=list(CAMERA_KEYS))
+    p.add_argument('--camera-names', nargs='+', default=list(DEFAULT_CAMERA_NAMES))
     p.add_argument('--camera-height', type=int, default=84)
     p.add_argument('--camera-width', type=int, default=84)
     args = parser.parse_args()

@@ -19,10 +19,29 @@ def update_ema_model(ema_model, model, decay=0.995):
             ema_param.data.mul_(decay).add_(param.data, alpha=1.0 - decay)
 
 
+def resolve_device(device_arg):
+    device = torch.device(device_arg)
+    if device.type == 'cpu':
+        return device
+    if not torch.cuda.is_available():
+        print('CUDA is not available. Falling back to CPU.')
+        return torch.device('cpu')
+    device_index = 0 if device.index is None else device.index
+    major, minor = torch.cuda.get_device_capability(device_index)
+    torch_major = int(torch.__version__.split('.')[0])
+    if torch_major < 2 and major >= 9:
+        raise RuntimeError(
+            f'This GPU has compute capability sm_{major}{minor}, but torch {torch.__version__} '
+            'does not support it. Use the remote RTX 3080 / sm_86 machine for this '
+            'old robodiff stack, or create a separate modern PyTorch environment for local training.'
+        )
+    return device
+
+
 def train(args):
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
-    device = torch.device(args.device if torch.cuda.is_available() or args.device == 'cpu' else 'cpu')
+    device = resolve_device(args.device)
 
     dataset = CanImageDataset(
         dataset_path=args.dataset,
