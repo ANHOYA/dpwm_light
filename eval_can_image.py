@@ -10,7 +10,7 @@ import torch
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from tqdm.auto import tqdm
 
-from can_data import CAMERA_KEYS, LOWDIM_KEYS, normalize_data, unnormalize_data
+from can_data import CAMERA_KEYS, DEFAULT_CAMERA_NAMES, LOWDIM_KEYS, normalize_data, unnormalize_data
 from can_policy import make_policy
 
 
@@ -25,7 +25,7 @@ def make_eval_env(camera_height=84, camera_width=84):
         has_renderer=False,
         has_offscreen_renderer=True,
         use_camera_obs=True,
-        camera_names=list(CAMERA_KEYS),
+        camera_names=list(DEFAULT_CAMERA_NAMES),
         camera_heights=camera_height,
         camera_widths=camera_width,
         reward_shaping=True,
