@@ -1,0 +1,29 @@
+name: robodiff-light
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.9
+  - pip=22.2.2
+  - cudatoolkit=11.6
+  - pytorch=1.12.1
+  - torchvision=0.13.1
+  - numpy=1.23.3
+  - scipy=1.9.1
+  - h5py=3.7.0
+  - py-opencv=4.6.0
+  - matplotlib=3.6.1
+  - tqdm=4.64.1
+  - scikit-image=0.19.3
+  - scikit-video=1.1.11
+  - ipykernel=6.16
+  - click=8.0.4
+  - pip:
+      - diffusers==0.11.1
+      - free-mujoco-py==2.1.6
+      - robosuite @ https://github.com/cheng-chi/robosuite/archive/277ab9588ad7a4f4b55cf75508b44aa67ec171f0.tar.gz
+      - robomimic==0.2.0
+      - hidapi==0.14.0
+      - imageio==2.22.0
+      - imageio-ffmpeg==0.4.7
