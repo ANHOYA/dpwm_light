@@ -91,19 +91,27 @@ def load_can_hdf5(dataset_path, camera_keys=CAMERA_KEYS, lowdim_keys=LOWDIM_KEYS
 
 class CanImageDataset:
     def __init__(self, dataset_path, pred_horizon=16, obs_horizon=2, action_horizon=8,
-                 camera_keys=CAMERA_KEYS):
+                 camera_keys=CAMERA_KEYS, return_future_images=False,
+                 future_horizon=4, future_stride=2):
         self.camera_keys = tuple(camera_keys)
         self.pred_horizon = pred_horizon
         self.obs_horizon = obs_horizon
         self.action_horizon = action_horizon
+        self.return_future_images = return_future_images
+        self.future_horizon = future_horizon
+        self.future_stride = future_stride
+        sample_horizon = pred_horizon
+        if return_future_images:
+            sample_horizon = max(sample_horizon, obs_horizon + future_horizon * future_stride)
 
         raw_data, episode_ends = load_can_hdf5(dataset_path, camera_keys=self.camera_keys)
         self.indices = create_sample_indices(
             episode_ends=episode_ends,
-            sequence_length=pred_horizon,
+            sequence_length=sample_horizon,
             pad_before=obs_horizon - 1,
             pad_after=action_horizon - 1,
         )
+        self.sample_horizon = sample_horizon
 
         self.stats = {
             'action': get_data_stats(raw_data['action']),
@@ -122,20 +130,25 @@ class CanImageDataset:
         buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx = self.indices[idx]
         nsample = sample_sequence(
             self.data,
-            self.pred_horizon,
+            self.sample_horizon,
             buffer_start_idx,
             buffer_end_idx,
             sample_start_idx,
             sample_end_idx,
         )
         out = {
-            'action': torch.from_numpy(nsample['action'].astype(np.float32)),
+            'action': torch.from_numpy(nsample['action'][:self.pred_horizon].astype(np.float32)),
             'lowdim': torch.from_numpy(nsample['lowdim'][:self.obs_horizon].astype(np.float32)),
         }
+        future_indices = self.obs_horizon + np.arange(self.future_horizon) * self.future_stride
         for key in self.camera_keys:
             image = nsample[key][:self.obs_horizon]
             image = np.moveaxis(image, -1, 1).astype(np.float32) / 255.0
             out[key] = torch.from_numpy(image)
+            if self.return_future_images:
+                future_image = nsample[key][future_indices]
+                future_image = np.moveaxis(future_image, -1, 1).astype(np.float32) / 255.0
+                out[f'future_{key}'] = torch.from_numpy(future_image)
         return out
 
 

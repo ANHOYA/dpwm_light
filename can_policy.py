@@ -218,13 +218,36 @@ class CanImageEncoder(nn.Module):
         return torch.cat(features, dim=-1)
 
 
-def make_policy(obs_horizon, action_dim, lowdim_dim=9, camera_keys=('agentview_image', 'robot0_eye_in_hand_image')):
+class DualConditionFuser(nn.Module):
+    def __init__(self, obs_cond_dim, wm_cond_dim, future_horizon, hidden_dim=None):
+        super().__init__()
+        hidden_dim = hidden_dim or obs_cond_dim
+        self.net = nn.Sequential(
+            nn.Linear(obs_cond_dim + future_horizon * wm_cond_dim, hidden_dim),
+            nn.Mish(),
+            nn.Linear(hidden_dim, obs_cond_dim),
+        )
+
+    def forward(self, obs_cond, wm_cond):
+        wm_flat = wm_cond.flatten(start_dim=1)
+        return self.net(torch.cat([obs_cond, wm_flat], dim=-1))
+
+
+def make_policy(obs_horizon, action_dim, lowdim_dim=9,
+                camera_keys=('agentview_image', 'robot0_eye_in_hand_image'),
+                conditioning='obs_only', wm_cond_dim=0, future_horizon=0):
     obs_encoder = CanImageEncoder(camera_keys=camera_keys, lowdim_dim=lowdim_dim)
+    obs_cond_dim = obs_encoder.feature_dim * obs_horizon
     noise_pred_net = ConditionalUnet1D(
         input_dim=action_dim,
-        global_cond_dim=obs_encoder.feature_dim * obs_horizon,
+        global_cond_dim=obs_cond_dim,
     )
-    return nn.ModuleDict({
+    nets = nn.ModuleDict({
         'obs_encoder': obs_encoder,
         'noise_pred_net': noise_pred_net,
     })
+    if conditioning == 'obs_wm':
+        nets['cond_fuser'] = DualConditionFuser(obs_cond_dim, wm_cond_dim, future_horizon)
+    elif conditioning != 'obs_only':
+        raise ValueError(f'Unknown conditioning mode: {conditioning}')
+    return nets

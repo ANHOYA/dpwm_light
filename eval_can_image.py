@@ -11,6 +11,7 @@ from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from tqdm.auto import tqdm
 
 from can_data import CAMERA_KEYS, DEFAULT_CAMERA_NAMES, LOWDIM_KEYS, normalize_data, unnormalize_data
+from can_image_world_model import load_world_model
 from can_policy import make_policy
 
 
@@ -66,7 +67,22 @@ def eval_policy(args):
     payload = torch.load(args.checkpoint, map_location=device)
     cfg = payload['config']
     stats = payload['stats']
-    nets = make_policy(cfg['obs_horizon'], cfg['action_dim'], cfg['lowdim_dim']).to(device)
+    conditioning = cfg.get('conditioning', 'obs_only')
+    world_model = None
+    if conditioning == 'obs_wm':
+        world_model_checkpoint = args.world_model_checkpoint or cfg.get('world_model_checkpoint')
+        if world_model_checkpoint is None:
+            raise ValueError('--world-model-checkpoint is required for this obs_wm checkpoint')
+        world_model, _ = load_world_model(world_model_checkpoint, device)
+
+    nets = make_policy(
+        cfg['obs_horizon'],
+        cfg['action_dim'],
+        cfg['lowdim_dim'],
+        conditioning=conditioning,
+        wm_cond_dim=cfg.get('wm_cond_dim', 0),
+        future_horizon=cfg.get('future_horizon', 0),
+    ).to(device)
     nets.load_state_dict(payload.get('ema_model', payload['model']))
     nets.eval()
     noise_scheduler = DDPMScheduler(
@@ -97,7 +113,11 @@ def eval_policy(args):
                     naction = torch.randn((1, cfg['pred_horizon'], cfg['action_dim']), device=device)
                     noise_scheduler.set_timesteps(cfg['num_diffusion_iters'])
                     for k in noise_scheduler.timesteps:
-                        noise_pred = nets['noise_pred_net'](naction, k, global_cond=obs_cond)
+                        global_cond = obs_cond
+                        if conditioning == 'obs_wm':
+                            wm_cond = world_model(batch_obs, naction)
+                            global_cond = nets['cond_fuser'](obs_cond, wm_cond)
+                        noise_pred = nets['noise_pred_net'](naction, k, global_cond=global_cond)
                         naction = noise_scheduler.step(noise_pred, k, naction).prev_sample
 
                 naction = naction.detach().cpu().numpy()[0]
@@ -146,6 +166,7 @@ def main():
     parser.add_argument('--num-episodes', type=int, default=4)
     parser.add_argument('--max-steps', type=int, default=400)
     parser.add_argument('--save-videos', type=int, default=2)
+    parser.add_argument('--world-model-checkpoint', default=None)
     eval_policy(parser.parse_args())
 
 

@@ -10,6 +10,7 @@ from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from tqdm.auto import tqdm
 
 from can_data import CAMERA_KEYS, CanImageDataset
+from can_image_world_model import load_world_model
 from can_policy import make_policy
 
 
@@ -62,7 +63,27 @@ def train(args):
     example = dataset[0]
     action_dim = example['action'].shape[-1]
     lowdim_dim = example['lowdim'].shape[-1]
-    nets = make_policy(args.obs_horizon, action_dim=action_dim, lowdim_dim=lowdim_dim).to(device)
+    world_model = None
+    world_model_cfg = None
+    wm_cond_dim = 0
+    future_horizon = 0
+    if args.conditioning == 'obs_wm':
+        if args.world_model_checkpoint is None:
+            raise ValueError('--world-model-checkpoint is required when --conditioning obs_wm')
+        world_model, world_model_cfg = load_world_model(args.world_model_checkpoint, device)
+        for param in world_model.parameters():
+            param.requires_grad_(False)
+        wm_cond_dim = world_model_cfg['latent_dim']
+        future_horizon = world_model_cfg['future_horizon']
+
+    nets = make_policy(
+        args.obs_horizon,
+        action_dim=action_dim,
+        lowdim_dim=lowdim_dim,
+        conditioning=args.conditioning,
+        wm_cond_dim=wm_cond_dim,
+        future_horizon=future_horizon,
+    ).to(device)
     noise_scheduler = DDPMScheduler(
         num_train_timesteps=args.num_diffusion_iters,
         beta_schedule='squaredcos_cap_v2',
@@ -79,7 +100,14 @@ def train(args):
     )
 
     config = vars(args).copy()
-    config.update({'action_dim': action_dim, 'lowdim_dim': lowdim_dim, 'camera_keys': list(CAMERA_KEYS)})
+    config.update({
+        'action_dim': action_dim,
+        'lowdim_dim': lowdim_dim,
+        'camera_keys': list(CAMERA_KEYS),
+        'wm_cond_dim': wm_cond_dim,
+        'future_horizon': future_horizon,
+        'world_model_config': world_model_cfg,
+    })
     best_loss = float('inf')
 
     with tqdm(range(args.num_epochs), desc='Epoch') as tglobal:
@@ -103,7 +131,13 @@ def train(args):
                     device=device,
                 ).long()
                 noisy_actions = noise_scheduler.add_noise(naction, noise, timesteps)
-                noise_pred = nets['noise_pred_net'](noisy_actions, timesteps, global_cond=obs_cond)
+                global_cond = obs_cond
+                if args.conditioning == 'obs_wm':
+                    wm_actions = naction if args.wm_action_mode == 'clean' else noisy_actions
+                    with torch.no_grad():
+                        wm_cond = world_model(obs, wm_actions)
+                    global_cond = nets['cond_fuser'](obs_cond, wm_cond)
+                noise_pred = nets['noise_pred_net'](noisy_actions, timesteps, global_cond=global_cond)
                 loss = nn.functional.mse_loss(noise_pred, noise)
 
                 loss.backward()
@@ -149,6 +183,9 @@ def main():
     parser.add_argument('--save-every', type=int, default=10)
     parser.add_argument('--max-train-steps', type=int, default=None)
     parser.add_argument('--ema-decay', type=float, default=0.995)
+    parser.add_argument('--conditioning', choices=['obs_only', 'obs_wm'], default='obs_only')
+    parser.add_argument('--world-model-checkpoint', default=None)
+    parser.add_argument('--wm-action-mode', choices=['clean', 'noisy'], default='clean')
     train(parser.parse_args())
 
 

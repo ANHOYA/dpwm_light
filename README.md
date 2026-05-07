@@ -10,7 +10,9 @@ This is a lightweight `PickPlaceCan` workspace. It removes the heavy Hydra/works
 can_teleop.py                    # SpaceMouse teleop + demo collection
 can_data.py                      # HDF5 dataset preparation + CanImageDataset
 can_policy.py                    # ResNet image encoder + ConditionalUnet1D
+can_image_world_model.py         # multi-frame future image latent world model
 train_can_image.py               # image diffusion policy training
+train_image_world_model.py       # image world model training
 eval_can_image.py                # robosuite rollout evaluation
 diffusion_policy_vision_pusht_demo.ipynb  # original Colab reference notebook
 environment.yaml                 # minimal conda environment
@@ -162,12 +164,65 @@ python train_can_image.py \
   --device cpu
 ```
 
+## Train Image World Model
+
+The image world model predicts a multi-frame future visual latent sequence from current multi-view images and a candidate action sequence. It is image-based, but predicts ResNet latents instead of pixels to keep the code path light and stable.
+
+이미지 월드모델은 현재 multi-view 이미지와 candidate action sequence를 입력으로 받아 미래 multi-frame visual latent를 예측합니다. pixel 생성 대신 ResNet latent를 예측해서 구조를 가볍게 유지합니다.
+
+```bash
+python train_image_world_model.py \
+  --dataset data/robomimic/datasets/can/custom/image.hdf5 \
+  --output data/outputs/can_image_world_model \
+  --device cuda:0 \
+  --future-horizon 4 \
+  --future-stride 2
+```
+
+Smoke test:
+
+```bash
+python train_image_world_model.py \
+  --dataset data/robomimic/datasets/can/custom/image.hdf5 \
+  --output data/outputs/can_image_world_model_debug \
+  --num-epochs 1 \
+  --max-train-steps 1 \
+  --batch-size 2 \
+  --num-workers 0 \
+  --device cuda:0
+```
+
+## Train With World Model Conditioning
+
+```bash
+python train_can_image.py \
+  --dataset data/robomimic/datasets/can/custom/image.hdf5 \
+  --output data/outputs/can_image_light_wm \
+  --device cuda:0 \
+  --conditioning obs_wm \
+  --world-model-checkpoint data/outputs/can_image_world_model/best.pt \
+  --wm-action-mode clean
+```
+
+`--wm-action-mode clean` conditions on the expert action sequence during policy training. Use `--wm-action-mode noisy` for a later diffusion-consistent ablation.
+
 ## Evaluate
 
 ```bash
 python eval_can_image.py \
   --checkpoint data/outputs/can_image_light/latest.pt \
   --output data/eval_can_image_light \
+  --device cuda:0 \
+  --num-episodes 4
+```
+
+Evaluate a world-model-conditioned policy:
+
+```bash
+python eval_can_image.py \
+  --checkpoint data/outputs/can_image_light_wm/latest.pt \
+  --world-model-checkpoint data/outputs/can_image_world_model/best.pt \
+  --output data/eval_can_image_light_wm \
   --device cuda:0 \
   --num-episodes 4
 ```
@@ -200,3 +255,4 @@ data/
 - No kitchen/blockpush/pusht dependencies in the light code path.
 - The original notebook is kept only as a reference.
 - The maintainable path is the small Python script set above.
+- World model conditioning is optional and keeps the baseline `obs_only` path unchanged.
