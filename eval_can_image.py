@@ -140,7 +140,8 @@ def eval_policy(args):
         ok = bool(env._check_success())
         scores.append(score)
         success.append(ok)
-        if ep < args.save_videos:
+        save_video = args.save_videos < 0 or ep < args.save_videos
+        if save_video:
             video_path = output_dir / f'episode_{ep}.mp4'
             imageio.mimsave(video_path, frames, fps=10)
             all_videos.append(str(video_path))
@@ -165,7 +166,8 @@ def main():
     parser.add_argument('--device', default='cuda:0')
     parser.add_argument('--num-episodes', type=int, default=4)
     parser.add_argument('--max-steps', type=int, default=400)
-    parser.add_argument('--save-videos', type=int, default=2)
+    parser.add_argument('--save-videos', type=int, default=-1,
+                        help='Number of episode videos to save. Use -1 for all, 0 for none.')
     parser.add_argument('--world-model-checkpoint', default=None)
     eval_policy(parser.parse_args())
 

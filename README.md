@@ -204,7 +204,7 @@ python train_can_image.py \
   --wm-action-mode clean
 ```
 
-`--wm-action-mode clean` conditions on the expert action sequence during policy training. Use `--wm-action-mode noisy` for a later diffusion-consistent ablation.
+`--wm-action-mode clean` conditions on the expert action sequence during policy training. This is the default DP+WM path. `--wm-action-mode noisy` is only an optional train/eval mismatch ablation; it is not WM-only.
 
 ## Evaluate
 
@@ -215,6 +215,8 @@ python eval_can_image.py \
   --device cuda:0 \
   --num-episodes 4
 ```
+
+Videos are saved for all episodes by default. Use `--save-videos 0` to disable video saving, or `--save-videos N` to save only the first `N` episodes.
 
 Evaluate a world-model-conditioned policy:
 
