@@ -152,6 +152,72 @@ class CanImageDataset:
         return out
 
 
+class CanSequenceDataset:
+    def __init__(self, dataset_path, sequence_length=32, camera_keys=CAMERA_KEYS,
+                 lowdim_keys=LOWDIM_KEYS):
+        self.camera_keys = tuple(camera_keys)
+        self.sequence_length = sequence_length
+        episodes = []
+        episode_ends = []
+        total = 0
+        with h5py.File(dataset_path, 'r') as f:
+            for demo_key in _sorted_demo_keys(f['data']):
+                demo = f[f'data/{demo_key}']
+                obs = demo['obs']
+                actions = demo['actions'][()].astype(np.float32)
+                lowdim = np.concatenate([obs[k][()].astype(np.float32) for k in lowdim_keys], axis=-1)
+                ep = {
+                    'action': actions,
+                    'lowdim': lowdim,
+                    'reward': demo['rewards'][()].astype(np.float32)
+                    if 'rewards' in demo else np.zeros(len(actions), dtype=np.float32),
+                    'done': demo['dones'][()].astype(np.float32)
+                    if 'dones' in demo else np.zeros(len(actions), dtype=np.float32),
+                }
+                for key in self.camera_keys:
+                    ep[key] = obs[key][()]
+                episodes.append(ep)
+                total += len(actions)
+                episode_ends.append(total)
+
+        self.data = {}
+        for key in ['action', 'lowdim', 'reward', 'done'] + list(self.camera_keys):
+            self.data[key] = np.concatenate([ep[key] for ep in episodes], axis=0)
+        self.stats = {
+            'action': get_data_stats(self.data['action']),
+            'lowdim': get_data_stats(self.data['lowdim']),
+        }
+        self.data['action'] = normalize_data(self.data['action'], self.stats['action']).astype(np.float32)
+        self.data['lowdim'] = normalize_data(self.data['lowdim'], self.stats['lowdim']).astype(np.float32)
+        self.indices = create_sample_indices(np.asarray(episode_ends), sequence_length)
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        import torch
+
+        buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx = self.indices[idx]
+        nsample = sample_sequence(
+            self.data,
+            self.sequence_length,
+            buffer_start_idx,
+            buffer_end_idx,
+            sample_start_idx,
+            sample_end_idx,
+        )
+        out = {
+            'action': torch.from_numpy(nsample['action'].astype(np.float32)),
+            'lowdim': torch.from_numpy(nsample['lowdim'].astype(np.float32)),
+            'reward': torch.from_numpy(nsample['reward'].astype(np.float32)),
+            'done': torch.from_numpy(nsample['done'].astype(np.float32)),
+        }
+        for key in self.camera_keys:
+            image = np.moveaxis(nsample[key], -1, 1).astype(np.float32) / 255.0
+            out[key] = torch.from_numpy(image)
+        return out
+
+
 def load_raw_metadata(raw_demo):
     with h5py.File(raw_demo, 'r') as f:
         env_meta = json.loads(f['data'].attrs['env_args'])

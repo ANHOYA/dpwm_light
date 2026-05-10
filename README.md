@@ -11,9 +11,20 @@ can_teleop.py                    # SpaceMouse teleop + demo collection
 can_data.py                      # HDF5 dataset preparation + CanImageDataset
 can_policy.py                    # ResNet image encoder + ConditionalUnet1D
 can_image_world_model.py         # multi-frame future image latent world model
+can_rssm.py                      # RSSM world model + RSSM policy modules
+can_dreamer_rssm.py              # DreamerV3-style discrete RSSM modules
 train_can_image.py               # image diffusion policy training
 train_image_world_model.py       # image world model training
+train_rssm_world_model.py        # RSSM world model training
+train_rssm_bc.py                 # RSSM-only behavior cloning baseline
+train_can_rssm_policy.py         # DP + RSSM training
+train_can_rssm_dream.py          # DP + RSSM + dream distillation training
+train_dreamer_rssm_world_model.py # DreamerV3-style world model training
+train_can_dreamer_policy.py      # DP + Dreamer RSSM training
+train_can_dreamer_dream.py       # DP + Dreamer RSSM + dream training
 eval_can_image.py                # robosuite rollout evaluation
+eval_can_rssm_policy.py          # DP + RSSM rollout evaluation
+eval_can_dreamer_policy.py       # DP + Dreamer RSSM rollout evaluation
 diffusion_policy_vision_pusht_demo.ipynb  # original Colab reference notebook
 environment.yaml                 # minimal conda environment
 ```
@@ -205,6 +216,155 @@ python train_can_image.py \
 ```
 
 `--wm-action-mode clean` conditions on the expert action sequence during policy training. This is the default DP+WM path. `--wm-action-mode noisy` is only an optional train/eval mismatch ablation; it is not WM-only.
+
+## RSSM World Model Path
+
+The original DP baseline remains unchanged in `train_can_image.py --conditioning obs_only`. The continuous RSSM files are kept as a lightweight prototype. The main world-model path should use the DreamerV3-style discrete RSSM files below.
+
+```text
+DP only             : original image diffusion policy
+RSSM-only / RSSM-BC : RSSM latent state + direct BC action head
+DP + RSSM           : diffusion policy conditioned on RSSM belief state
+DP + RSSM + Dream   : DP + RSSM further trained with RSSM imagination distillation
+```
+
+DreamerV3-style components included here:
+
+```text
+discrete categorical stochastic latent
+straight-through categorical sampling
+unimix categorical smoothing
+KL balancing with dynamic and representation terms
+free nats
+symlog / symexp reward and value support
+two-hot reward and value heads
+continuation prediction
+latent imagination through RSSM prior dynamics
+```
+
+Train DreamerV3-style RSSM world model:
+
+```bash
+python train_dreamer_rssm_world_model.py \
+  --dataset data/robomimic/datasets/can/custom/image.hdf5 \
+  --output data/outputs/can_dreamer_rssm_world_model \
+  --device cuda:0 \
+  --sequence-length 32
+```
+
+Train DP + Dreamer RSSM:
+
+```bash
+python train_can_dreamer_policy.py \
+  --dataset data/robomimic/datasets/can/custom/image.hdf5 \
+  --rssm-checkpoint data/outputs/can_dreamer_rssm_world_model/best.pt \
+  --output data/outputs/can_dp_dreamer_rssm \
+  --device cuda:0 \
+  --conditioning rssm
+```
+
+Train DP + Dreamer RSSM with imagination conditioning:
+
+```bash
+python train_can_dreamer_policy.py \
+  --dataset data/robomimic/datasets/can/custom/image.hdf5 \
+  --rssm-checkpoint data/outputs/can_dreamer_rssm_world_model/best.pt \
+  --output data/outputs/can_dp_dreamer_rssm_imagine \
+  --device cuda:0 \
+  --conditioning rssm_imagine
+```
+
+Dream-train a DP + Dreamer RSSM checkpoint:
+
+```bash
+python train_can_dreamer_dream.py \
+  --dataset data/robomimic/datasets/can/custom/image.hdf5 \
+  --rssm-checkpoint data/outputs/can_dreamer_rssm_world_model/best.pt \
+  --policy-checkpoint data/outputs/can_dp_dreamer_rssm_imagine/best.pt \
+  --output data/outputs/can_dp_dreamer_rssm_dream \
+  --device cuda:0 \
+  --num-candidates 4 \
+  --dream-loss-weight 0.1
+```
+
+Evaluate DP + Dreamer RSSM:
+
+```bash
+python eval_can_dreamer_policy.py \
+  --checkpoint data/outputs/can_dp_dreamer_rssm_dream/latest.pt \
+  --rssm-checkpoint data/outputs/can_dreamer_rssm_world_model/best.pt \
+  --output data/eval_can_dp_dreamer_rssm_dream \
+  --device cuda:0 \
+  --num-episodes 10
+```
+
+Legacy continuous RSSM commands are kept for ablation and debugging:
+
+Train RSSM world model:
+
+```bash
+python train_rssm_world_model.py \
+  --dataset data/robomimic/datasets/can/custom/image.hdf5 \
+  --output data/outputs/can_rssm_world_model \
+  --device cuda:0 \
+  --sequence-length 32
+```
+
+Train RSSM-only BC baseline:
+
+```bash
+python train_rssm_bc.py \
+  --dataset data/robomimic/datasets/can/custom/image.hdf5 \
+  --rssm-checkpoint data/outputs/can_rssm_world_model/best.pt \
+  --output data/outputs/can_rssm_bc \
+  --device cuda:0
+```
+
+Train DP + RSSM:
+
+```bash
+python train_can_rssm_policy.py \
+  --dataset data/robomimic/datasets/can/custom/image.hdf5 \
+  --rssm-checkpoint data/outputs/can_rssm_world_model/best.pt \
+  --output data/outputs/can_dp_rssm \
+  --device cuda:0 \
+  --conditioning rssm
+```
+
+Train DP + RSSM with RSSM imagination condition:
+
+```bash
+python train_can_rssm_policy.py \
+  --dataset data/robomimic/datasets/can/custom/image.hdf5 \
+  --rssm-checkpoint data/outputs/can_rssm_world_model/best.pt \
+  --output data/outputs/can_dp_rssm_imagine \
+  --device cuda:0 \
+  --conditioning rssm_imagine
+```
+
+Dream-train a DP + RSSM checkpoint:
+
+```bash
+python train_can_rssm_dream.py \
+  --dataset data/robomimic/datasets/can/custom/image.hdf5 \
+  --rssm-checkpoint data/outputs/can_rssm_world_model/best.pt \
+  --policy-checkpoint data/outputs/can_dp_rssm_imagine/best.pt \
+  --output data/outputs/can_dp_rssm_dream \
+  --device cuda:0 \
+  --num-candidates 4 \
+  --dream-loss-weight 0.1
+```
+
+Evaluate DP + RSSM or DP + RSSM + Dream:
+
+```bash
+python eval_can_rssm_policy.py \
+  --checkpoint data/outputs/can_dp_rssm_dream/latest.pt \
+  --rssm-checkpoint data/outputs/can_rssm_world_model/best.pt \
+  --output data/eval_can_dp_rssm_dream \
+  --device cuda:0 \
+  --num-episodes 10
+```
 
 ## Evaluate
 
