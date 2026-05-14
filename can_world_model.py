@@ -244,3 +244,6 @@ def load_dreamer_rssm(checkpoint_path, device):
     model.load_state_dict(payload['model'])
     model.eval()
     return model, cfg
+
+
+load_world_model = load_dreamer_rssm
