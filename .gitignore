@@ -23,3 +23,5 @@ venv/
 env/
 robodiff-light/
 MUJOCO_LOG.TXT
+
+*.tex
